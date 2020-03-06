@@ -10,6 +10,12 @@
       "prevalues": {
         "fields": [
           {
+            "description: "Enter the alias for the property on your document type containing the channel username",
+            "key": "channelPropertyAlias",
+            "label": "Channel Property Alias",
+            "view": "string"
+          },
+          {
             "description": "Enter the Channel to display videos only for that channel",
             "key": "channel",
             "label": "Channel ",

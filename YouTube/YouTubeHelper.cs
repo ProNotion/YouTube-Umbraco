@@ -1,18 +1,22 @@
-﻿using System.Web.Configuration;
+﻿using System;
+using System.Linq;
+using System.Web.Configuration;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using Google.Apis.YouTube.v3.Data;
 
+using Umbraco.Web;
+
 namespace YouTube
 {
-    using System.Linq;
-
     public class YouTubeHelper
     {
         //CONSTANTS
         private const string _ApiKey            = "AIzaSyAgXB3nYk3f00eXZd0FGsUjJySf2Fnp7KA";
         private const string _ApplicationName   = "YouTube for Umbraco";
         private const int _noPerPage            = 3;
+
+        private static int _cacheTimeout; // The length of time to cache calls to the YouTubeService to avoid exceeding daily limits!
 
         /// <summary>
         /// Gets the YouTube Service that we use for all requests
@@ -26,12 +30,19 @@ namespace YouTube
                 ApplicationName = _ApplicationName
             });
 
+            if (!int.TryParse(WebConfigurationManager.AppSettings["YouTube-Umbraco:CacheTimeout"], out _cacheTimeout))
+            {
+                _cacheTimeout = 60; // Default value in seconds
+            }
+
             return youTubeService;
         }
 
         
         public static SearchListResponse GetVideosForChannel(string pageToken, string channelId, string searchQuery, SearchResource.ListRequest.OrderEnum orderBy)
         {
+            var cacheKey = GetCacheKey("SearchListResponse", pageToken, channelId, searchQuery, orderBy.ToString());
+
             //Get YouTube Service
             var youTube = GetYouTubeService();
 
@@ -53,7 +64,7 @@ namespace YouTube
             }
 
             //Perform request
-            var videoResponse = videoRequest.Execute();
+            var videoResponse = GetCachedResponse(cacheKey, () => videoRequest.Execute());
 
             //Return the list of videos we find
             return videoResponse;
@@ -68,6 +79,8 @@ namespace YouTube
         /// https://www.googleapis.com/youtube/v3/videos?part=snippet%2Cstatistics&id=gRyPjRrjS34&key=AIzaSyAgXB3nYk3f00eXZd0FGsUjJySf2Fnp7KA
         public static VideoListResponse GetVideo(string videoId)
         {
+            var cacheKey = GetCacheKey("SearchListResponse", videoId);
+
             // Get YouTube Service
             var youTube = GetYouTubeService();
 
@@ -76,7 +89,7 @@ namespace YouTube
             videoRequest.Id     = videoId;
 
             // Perform request
-            var videoResponse = videoRequest.Execute();
+            var videoResponse = GetCachedResponse(cacheKey, () => videoRequest.Execute());
 
             return videoResponse;
         }
@@ -122,6 +135,32 @@ namespace YouTube
             var channelResponse = channelQueryRequest.Execute();
 
             return channelResponse;
+        }
+
+        /// <summary>
+        /// Gets the cache key based on the method name and arguments.
+        /// </summary>
+        /// <param name="methodName">Name of the method.</param>
+        /// <param name="args">The arguments.</param>
+        /// <returns>A cache key</returns>
+        private static string GetCacheKey(string methodName, params string[] args)
+        {
+            return string.Concat("YouTubeHelper.", methodName, string.Join(".", args));
+        }
+
+        /// <summary>
+        /// Gets the cached response.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="cacheKey">The cache key.</param>
+        /// <param name="getCachedItem">The get cached item.</param>
+        /// <returns>The cached response</returns>
+        private static T GetCachedResponse<T>(string cacheKey, Func<T> getCachedItem)
+        {
+            return (T)UmbracoContext.Current.Application.ApplicationCache.RuntimeCache.GetCacheItem(
+                cacheKey,
+                () => getCachedItem(),
+                TimeSpan.FromSeconds(_cacheTimeout));
         }
     }
 }
